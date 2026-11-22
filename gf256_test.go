@@ -242,3 +242,30 @@ func TestWantTier(t *testing.T) {
 	}
 	t.Fatalf("tier %q not available; have %v", want, tiers)
 }
+
+// The fast paths must not reach a kernel: a kernel that panics proves it.
+func TestTrivialConstantsSkipKernels(t *testing.T) {
+	boom := func(dst, src []byte, c byte) int { panic("kernel called") }
+	withTier(t, tier{name: "boom", mul: boom, mulAdd: boom})
+	src := []byte{1, 2, 3}
+	dst := []byte{9, 9, 9}
+	MulAddSlice(dst, src, 0)
+	MulSlice(dst, src, 1)
+	if !bytes.Equal(dst, src) {
+		t.Fatal("MulSlice by 1 must copy")
+	}
+	MulSlice(dst, src, 0)
+	if !bytes.Equal(dst, []byte{0, 0, 0}) {
+		t.Fatal("MulSlice by 0 must clear")
+	}
+}
+
+func TestPick(t *testing.T) {
+	if got := pick(nil).name; got != "generic" {
+		t.Fatalf("no SIMD tier: %q, want generic", got)
+	}
+	two := []tier{{name: "first"}, {name: "second"}}
+	if got := pick(two).name; got != "first" {
+		t.Fatalf("pick = %q, want the fastest (first)", got)
+	}
+}

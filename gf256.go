@@ -85,12 +85,12 @@ type tier struct {
 var (
 	// tiers are the SIMD tiers this CPU can run, fastest first (archTiers).
 	tiers  = archTiers()
-	active = pick()
+	active = pick(tiers)
 )
 
-func pick() tier {
-	if len(tiers) > 0 {
-		return tiers[0]
+func pick(ts []tier) tier {
+	if len(ts) > 0 {
+		return ts[0]
 	}
 	return tier{name: "generic"}
 }
