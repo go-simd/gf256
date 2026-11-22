@@ -38,18 +38,17 @@ func mulRef(a, b byte) byte {
 	return p
 }
 
-var (
-	// mulTab[c][x] = c*x.
-	mulTab [256][256]byte
-	// nib[c] is the split table of c: nib[c][i] = c*i for i < 16, then
-	// nib[c][16+i] = c*(i<<4). c*x = nib[c][x&15] ^ nib[c][16+x>>4].
-	nib [256][32]byte
-	// mat[c] is the VGF2P8AFFINEQB matrix of x -> c*x: byte 7-i of the qword is
-	// the row producing output bit i, whose bit k is bit i of c*2^k.
-	mat [256]uint64
-)
+// Package-level initializers, not init(): the kernel self-check in archTiers
+// runs during variable initialization and needs the tables.
+//
+//   - mulTab[c][x] = c*x.
+//   - nib[c] is the split table of c: nib[c][i] = c*i for i < 16, then
+//     nib[c][16+i] = c*(i<<4). c*x = nib[c][x&15] ^ nib[c][16+x>>4].
+//   - mat[c] is the VGF2P8AFFINEQB matrix of x -> c*x: byte 7-i of the qword is
+//     the row producing output bit i, whose bit k is bit i of c*2^k.
+var mulTab, nib, mat = buildTables()
 
-func init() {
+func buildTables() (mulTab [256][256]byte, nib [256][32]byte, mat [256]uint64) {
 	for c := 0; c < 256; c++ {
 		for x := 0; x < 256; x++ {
 			mulTab[c][x] = mulRef(byte(c), byte(x))
@@ -68,6 +67,35 @@ func init() {
 		}
 		mat[c] = m
 	}
+	return
+}
+
+// selfCheck runs a kernel pair over every constant on a 96-byte pattern and
+// compares with the product table. A tier that fails is not offered: a kernel
+// the CI fleet cannot execute (GFNI) must degrade to the next tier, never to
+// wrong bytes.
+func selfCheck(t tier) bool {
+	var src, got, want [96]byte
+	for i := range src {
+		src[i] = byte(i*37 + 11)
+	}
+	for c := 1; c < 256; c++ {
+		for i := range src {
+			want[i] = mulTab[c][src[i]]
+		}
+		got = [96]byte{}
+		if t.mul(got[:], src[:], byte(c)) != len(src) || got != want {
+			return false
+		}
+		for i := range got {
+			got[i] = byte(i)
+			want[i] ^= byte(i)
+		}
+		if t.mulAdd(got[:], src[:], byte(c)) != len(src) || got != want {
+			return false
+		}
+	}
+	return true
 }
 
 // Mul returns a*b in GF(2^8).

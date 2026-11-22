@@ -281,3 +281,68 @@ func TestPick(t *testing.T) {
 		t.Fatalf("pick = %q, want the fastest (first)", got)
 	}
 }
+
+// tableTier is a correct kernel pair built on the product table, handling
+// whole 16-byte blocks like a real one.
+func tableTier() tier {
+	return tier{name: "table",
+		mul: func(dst, src []byte, c byte) int {
+			n := len(src) &^ 15
+			for i := 0; i < n; i++ {
+				dst[i] = mulTab[c][src[i]]
+			}
+			return n
+		},
+		mulAdd: func(dst, src []byte, c byte) int {
+			n := len(src) &^ 15
+			for i := 0; i < n; i++ {
+				dst[i] ^= mulTab[c][src[i]]
+			}
+			return n
+		}}
+}
+
+func TestSelfCheck(t *testing.T) {
+	good := tableTier()
+	if !selfCheck(good) {
+		t.Fatal("a correct kernel pair failed the self-check")
+	}
+	for _, ti := range tiers {
+		if !selfCheck(ti) {
+			t.Fatalf("tier %s failed its own self-check", ti.name)
+		}
+	}
+	wrongMul := good
+	wrongMul.mul = func(dst, src []byte, c byte) int {
+		good.mul(dst, src, c)
+		dst[95] ^= 1 // the last byte of the pattern, a tail a short loop would miss
+		return len(src)
+	}
+	wrongAdd := good
+	wrongAdd.mulAdd = func(dst, src []byte, c byte) int {
+		good.mulAdd(dst, src, c)
+		dst[0] ^= 1
+		return len(src)
+	}
+	shortMul := good
+	shortMul.mul = func(dst, src []byte, c byte) int { return good.mul(dst, src, c) - 16 }
+	shortAdd := good
+	shortAdd.mulAdd = func(dst, src []byte, c byte) int { return good.mulAdd(dst, src, c) - 16 }
+	// A kernel wrong for one constant only (the last one) must still be caught.
+	lastC := good
+	lastC.mulAdd = func(dst, src []byte, c byte) int {
+		n := good.mulAdd(dst, src, c)
+		if c == 255 {
+			dst[3] ^= 1
+		}
+		return n
+	}
+	for name, bad := range map[string]tier{
+		"wrong mul": wrongMul, "wrong mulAdd": wrongAdd,
+		"short mul": shortMul, "short mulAdd": shortAdd, "constant 255": lastC,
+	} {
+		if selfCheck(bad) {
+			t.Errorf("%s passed the self-check", name)
+		}
+	}
+}

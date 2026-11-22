@@ -19,7 +19,10 @@ func cpuidGFNI() (ok int)
 
 func archTiers() (t []tier) {
 	if cpu.X86.HasAVX2 && cpuidGFNI() != 0 {
-		t = append(t, tier{"gfni+avx2",
+		// Hosted CI runners and QEMU lack GFNI, so this kernel is executed
+		// only on hardware that has it; the self-check keeps a mistake there
+		// from ever returning wrong bytes (the tier is simply not offered).
+		g := tier{"gfni+avx2",
 			func(dst, src []byte, c byte) int {
 				n := len(src) &^ 31
 				if n > 0 {
@@ -33,7 +36,10 @@ func archTiers() (t []tier) {
 					mulAddGFNI(dst, src, mat[c], n)
 				}
 				return n
-			}})
+			}}
+		if selfCheck(g) {
+			t = append(t, g)
+		}
 	}
 	if cpu.X86.HasAVX2 {
 		t = append(t, tier{"avx2",
