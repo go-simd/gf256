@@ -35,9 +35,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with: { go-version: '1.27.3' }
-      - run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user
       - run: CGO_ENABLED=0 go test -c -o gf256.test .
-      - run: qemu-x86_64-static -cpu max ./gf256.test -test.v -test.count=1
+      - run: qemu-x86_64 -cpu max ./gf256.test -test.v -test.count=1
         env:
           GF256_WANT_TIER: gfni+avx2
 
