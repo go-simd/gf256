@@ -1,0 +1,84 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, arch: amd64 }
+          - { os: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go vet ./...
+      - run: go test -v -count=1 ./...
+      # Fuzz targets run over their seed corpus (no -fuzz, no flake); randomized
+      # fuzzing runs nightly in fuzz.yml.
+      - run: go test -count=1 -run '^Fuzz' ./...
+      - name: generated assembly is up to date
+        run: |
+          (cd gen && go run .)
+          git diff --exit-code -- gf256_amd64.s gf256_arm64.s
+
+  # amd64 under QEMU with every CPU feature it emulates: the only lane where the
+  # GFNI+AVX2 kernel can run if the hosted runners' CPUs lack GFNI. The test
+  # fails if the tier is absent, so a silently skipped kernel cannot pass.
+  amd64-qemu-max:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+      - run: CGO_ENABLED=0 go test -c -o gf256.test .
+      - run: qemu-x86_64-static -cpu max ./gf256.test -test.v -test.count=1
+        env:
+          GF256_WANT_TIER: gfni+avx2
+
+  os-matrix:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  # Pure-Go fallback and the other 64-bit ports: build everywhere, run the
+  # generic path under emulation on one big-endian and one RISC target.
+  emulated:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: riscv64, image: "debian:trixie", qemu: "rv64,v=true,vlen=128" }
+          - { arch: s390x,   image: "debian:trixie", qemu: "qemu" }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: docker run --privileged --rm tonistiigi/binfmt --install all
+      - run: CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go test -c -o /tmp/t.test .
+      - run: docker run --rm --platform linux/${{ matrix.arch }} -e QEMU_CPU=${{ matrix.qemu }} -v /tmp:/t ${{ matrix.image }} /t/t.test -test.v
+  build-386:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: '1.27.3' }
+      - run: GOOS=linux GOARCH=386 go vet ./... && GOOS=linux GOARCH=386 go test -count=1 ./...
+      - run: GOOS=linux GOARCH=arm go vet ./... && GOOS=linux GOARCH=ppc64le go vet ./... && GOOS=linux GOARCH=loong64 go vet ./...
