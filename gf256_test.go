@@ -243,10 +243,22 @@ func TestWantTier(t *testing.T) {
 	t.Fatalf("tier %q not available; have %v", want, tiers)
 }
 
-// The fast paths must not reach a kernel: a kernel that panics proves it.
+// The fast paths must not reach a kernel: a counting kernel proves it, and that
+// a non-trivial constant does reach it.
 func TestTrivialConstantsSkipKernels(t *testing.T) {
-	boom := func(dst, src []byte, c byte) int { panic("kernel called") }
-	withTier(t, tier{name: "boom", mul: boom, mulAdd: boom})
+	calls := 0
+	count := func(dst, src []byte, c byte) int { calls++; return 0 }
+	withTier(t, tier{name: "count", mul: count, mulAdd: count})
+	defer func() {
+		if calls != 0 {
+			t.Fatalf("%d kernel calls for trivial constants, want 0", calls)
+		}
+		MulAddSlice([]byte{0}, []byte{1}, 2)
+		MulSlice([]byte{0}, []byte{1}, 2)
+		if calls != 2 {
+			t.Fatalf("%d kernel calls for constant 2, want 2", calls)
+		}
+	}()
 	src := []byte{1, 2, 3}
 	dst := []byte{9, 9, 9}
 	MulAddSlice(dst, src, 0)
