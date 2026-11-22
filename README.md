@@ -36,6 +36,12 @@ GFNI is detected with its own CPUID probe (leaf 7, ECX bit 8), because
 `golang.org/x/sys/cpu` records it only on AVX-512 parts and would miss AVX2-only
 CPUs. Tails shorter than a block go through the table loop.
 
+Hosted CI runners (AVX2, no GFNI) and QEMU 10.2 `-cpu max` cannot execute the
+GFNI kernel, so it has **not run on real hardware yet**. It is therefore offered
+only if, at start-up, it reproduces the product table for all 255 non-trivial
+constants; otherwise `Tier()` reports `avx2`. On a GFNI host,
+`GF256_WANT_TIER=gfni+avx2 go test ./...` fails unless the tier is present.
+
 GF arithmetic is exact, so the contract is equality: every tier is asserted
 byte-for-byte against a table-free shift-and-add reference for all 256 constants
 and lengths around every block boundary, plus fuzzing, in-place and short-slice
@@ -62,7 +68,10 @@ Reference: klauspost/reedsolomon `Encode`, single goroutine, 10 data + 4 parity
 shards (40 multiply-accumulates per shard column). Source:
 [`bench/interleave`](bench/interleave), interleaved rounds, medians.
 
-MEASUREMENTS_PLACEHOLDER
+Not yet measured: the only hosts available when v0.1.0 was cut were at 1-minute
+load 21-40 (threshold 8), and no host with GFNI was reachable, so no number is
+claimed. Run `go run . -load <1-minute load average>` in `bench/interleave` on a
+quiet host (it refuses above load 8). Open item until a table lands here.
 
 ## Layout
 
